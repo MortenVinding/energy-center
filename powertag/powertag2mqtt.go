@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	MQTT "github.com/eclipse/paho.mqtt.golang"
 	"log"
 	"os"
 	"strings"
@@ -15,9 +15,14 @@ import (
 const ProgNameMqtt string = "powertag2mqtt"
 
 func main() {
-	var url string
-
-	flag.StringVar(&url, "url", "192.168.0.20:1883", "mqtt server")
+	topic := flag.String("topic", "powertag/", "The topic name to/from which to publish/subscribe")
+	broker := flag.String("broker", "tcp://192.168.0.20:1883", "The broker URI. ex: tcp://10.10.1.1:1883")
+	password := flag.String("password", "", "The password (optional)")
+	user := flag.String("user", "", "The User (optional)")
+	id := flag.String("id", "powertag2mqtt", "The ClientID (optional)")
+	cleansess := flag.Bool("clean", false, "Set Clean Session (default false)")
+	qos := flag.Int("qos", 0, "The Quality of Service 0,1,2 (default 0)")
+	store := flag.String("store", ":memory:", "The Store Directory (default use memory store)")
 	flag.Parse()
 
 	stat, _ := os.Stdin.Stat()
@@ -28,18 +33,27 @@ func main() {
 		os.Exit(2)
 	}
 
-	mqtt.DEBUG = log.New(os.Stdout, "", 0)
-	mqtt.ERROR = log.New(os.Stdout, "", 0)
-	opts := mqtt.NewClientOptions().AddBroker(url).SetClientID(ProgNameMqtt)
+	MQTT.DEBUG = log.New(os.Stdout, "", 0)
+	MQTT.ERROR = log.New(os.Stdout, "", 0)
+
+	opts := MQTT.NewClientOptions()
+	opts.AddBroker(*broker)
+	opts.SetClientID(*id)
+	opts.SetUsername(*user)
+	opts.SetPassword(*password)
+	opts.SetCleanSession(*cleansess)
+	if *store != ":memory:" {
+		opts.SetStore(MQTT.NewFileStore(*store))
+	}
 	opts.SetKeepAlive(60 * time.Second)
 	opts.SetPingTimeout(1 * time.Second)
 
-	client := mqtt.NewClient(opts)
+	client := MQTT.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
 
-	fmt.Printf("%s: connected to %s\n", ProgNameMqtt, url)
+	fmt.Printf("%s: connected to %s\n", ProgNameMqtt, *broker)
 
 	lnscan := bufio.NewScanner(os.Stdin)
 	for lnscan.Scan() {
@@ -56,7 +70,7 @@ func main() {
 				if idExist {
 					jsonStr, _ := json.Marshal(measures)
 
-					token := client.Publish("powertag/"+tags["id"], 0, false, jsonStr)
+					token := client.Publish(*topic+tags["id"], byte(*qos), false, jsonStr)
 					token.Wait()
 				}
 
